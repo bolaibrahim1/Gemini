@@ -87,7 +87,7 @@ const REQUIRED_CONFIG: Record<string, string[]> = {
   'input.date': ['prompt', 'variable'],
   'input.choice': ['prompt', 'variable', 'options'],
   'input.confirmation': ['prompt', 'variable'],
-  'logic.condition': ['expression'],
+  'logic.condition': ['condition'],
   'logic.switch': ['variable'],
   'logic.wait': ['seconds'],
   'action.set_variable': ['variable', 'value'],

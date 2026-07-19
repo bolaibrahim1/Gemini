@@ -15,11 +15,19 @@ export type Permission =
   | 'bots:publish'
   | 'flows:read'
   | 'flows:manage'
+  | 'conversations:read'
+  | 'conversations:manage'
   | 'audit:read';
 
-const VIEWER_PERMISSIONS: Permission[] = ['org:read', 'workspaces:read', 'bots:read', 'flows:read'];
+const VIEWER_PERMISSIONS: Permission[] = [
+  'org:read',
+  'workspaces:read',
+  'bots:read',
+  'flows:read',
+  'conversations:read',
+];
 
-const AGENT_PERMISSIONS: Permission[] = [...VIEWER_PERMISSIONS];
+const AGENT_PERMISSIONS: Permission[] = [...VIEWER_PERMISSIONS, 'conversations:manage'];
 
 const ANALYST_PERMISSIONS: Permission[] = [...VIEWER_PERMISSIONS];
 
@@ -30,7 +38,11 @@ const BOT_BUILDER_PERMISSIONS: Permission[] = [
   'flows:manage',
 ];
 
-const SUPERVISOR_PERMISSIONS: Permission[] = [...VIEWER_PERMISSIONS, 'members:read'];
+const SUPERVISOR_PERMISSIONS: Permission[] = [
+  ...VIEWER_PERMISSIONS,
+  'members:read',
+  'conversations:manage',
+];
 
 const CAMPAIGN_MANAGER_PERMISSIONS: Permission[] = [...VIEWER_PERMISSIONS];
 
@@ -45,6 +57,7 @@ const ADMIN_PERMISSIONS: Permission[] = [
   'bots:manage',
   'bots:publish',
   'flows:manage',
+  'conversations:manage',
   'audit:read',
 ];
 

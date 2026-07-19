@@ -59,5 +59,18 @@ This is the Phase 1 foundation plus the Phase 2 data model from the plan:
 - Audit logging on sensitive actions (plan §11.10).
 - Local Docker environment and CI pipeline (plan §16).
 
-Next per the plan's initial priorities (§27): flow execution runtime with
-BullMQ workers, knowledge ingestion + RAG, website widget, WhatsApp Cloud API.
+- Flow execution runtime (plan §6.4–6.5): a pure, deterministic engine in
+  `packages/flow-core` (messages, inputs with Arabic-aware validation,
+  conditions, switches, business hours, tags, handover, AI fallbacks, step
+  limits), driven by a persistence layer with the channel-independent
+  conversation model (contacts, conversations, messages, executions, step
+  traces), a synchronous flow test simulator, and a BullMQ `inbound-events`
+  queue + in-process flow worker with webhook deduplication.
+
+Verified end-to-end against a live Postgres + Redis stack: register → org →
+bot → flow → publish → multi-turn Arabic simulator conversation (invalid-input
+reprompts, lead tagging, handover, bot silence under human ownership,
+return-to-bot), plus the async worker path with idempotent redelivery.
+
+Next per the plan's initial priorities (§27): knowledge ingestion + RAG
+(pgvector), website widget, WhatsApp Cloud API integration, team inbox.

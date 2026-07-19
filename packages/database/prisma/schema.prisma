@@ -127,12 +127,14 @@ model Organization {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  workspaces  Workspace[]
-  members     OrganizationMember[]
-  invitations Invitation[]
-  auditLogs   AuditLog[]
-  bots        Bot[]
-  flows       Flow[]
+  workspaces    Workspace[]
+  members       OrganizationMember[]
+  invitations   Invitation[]
+  auditLogs     AuditLog[]
+  bots          Bot[]
+  flows         Flow[]
+  contacts      Contact[]
+  conversations Conversation[]
 
   @@map("organizations")
 }
@@ -223,10 +225,11 @@ model Bot {
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  workspace    Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  flows        Flow[]
-  deployments  BotDeployment[]
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  flows         Flow[]
+  deployments   BotDeployment[]
+  conversations Conversation[]
 
   @@index([organizationId])
   @@index([workspaceId])
@@ -267,6 +270,7 @@ model FlowVersion {
 
   flow        Flow            @relation(fields: [flowId], references: [id], onDelete: Cascade)
   deployments BotDeployment[]
+  executions  FlowExecution[]
 
   @@unique([flowId, version])
   @@index([organizationId])
@@ -312,4 +316,150 @@ model AuditLog {
   @@index([organizationId, createdAt])
   @@index([actorUserId])
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Conversations (plan §11.5) — channel-independent conversation model
+// ---------------------------------------------------------------------------
+
+enum Channel {
+  SIMULATOR
+  WEBSITE
+  WHATSAPP
+}
+
+/// Ownership modes from plan §6.5.
+enum ConversationOwnership {
+  BOT
+  WAITING_HUMAN
+  HUMAN
+  CLOSED
+}
+
+enum ConversationStatus {
+  NEW
+  OPEN
+  PENDING
+  RESOLVED
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model Contact {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  displayName    String?  @map("display_name")
+  email          String?
+  phone          String?
+  /// Channel-provided identity (e.g. WhatsApp wa_id, widget visitor id).
+  externalId     String?  @map("external_id")
+  language       String   @default("ar")
+  attributes     Json     @default("{}")
+  tags           String[] @default([])
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@unique([organizationId, externalId])
+  @@index([organizationId])
+  @@map("contacts")
+}
+
+model Conversation {
+  id             String                @id @default(uuid())
+  organizationId String                @map("organization_id")
+  botId          String                @map("bot_id")
+  contactId      String                @map("contact_id")
+  channel        Channel
+  ownership      ConversationOwnership @default(BOT)
+  status         ConversationStatus    @default(OPEN)
+  lastMessageAt  DateTime?             @map("last_message_at")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bot          Bot             @relation(fields: [botId], references: [id], onDelete: Cascade)
+  contact      Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messages     Message[]
+  executions   FlowExecution[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, lastMessageAt])
+  @@map("conversations")
+}
+
+model Message {
+  id             String           @id @default(uuid())
+  organizationId String           @map("organization_id")
+  conversationId String           @map("conversation_id")
+  direction      MessageDirection
+  type           String
+  content        Json
+  /// Channel event id used to deduplicate webhook redeliveries (plan §6.5).
+  idempotencyKey String?          @map("idempotency_key")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, idempotencyKey])
+  @@index([conversationId, createdAt])
+  @@index([organizationId])
+  @@map("messages")
+}
+
+enum FlowExecutionStatus {
+  CREATED
+  RUNNING
+  WAITING_INPUT
+  WAITING_EXTERNAL
+  HANDED_OVER
+  COMPLETED
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+model FlowExecution {
+  id             String              @id @default(uuid())
+  organizationId String              @map("organization_id")
+  conversationId String              @map("conversation_id")
+  botId          String              @map("bot_id")
+  flowVersionId  String              @map("flow_version_id")
+  status         FlowExecutionStatus @default(CREATED)
+  waitingNodeId  String?             @map("waiting_node_id")
+  variables      Json                @default("{}")
+  stepCount      Int                 @default(0) @map("step_count")
+  error          String?
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  conversation Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  flowVersion  FlowVersion         @relation(fields: [flowVersionId], references: [id])
+  steps        FlowExecutionStep[]
+
+  @@index([conversationId, status])
+  @@index([organizationId])
+  @@map("flow_executions")
+}
+
+model FlowExecutionStep {
+  id          String   @id @default(uuid())
+  executionId String   @map("execution_id")
+  index       Int
+  nodeId      String   @map("node_id")
+  nodeType    String   @map("node_type")
+  status      String
+  detail      String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  execution FlowExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@unique([executionId, index])
+  @@map("flow_execution_steps")
 }

@@ -2,11 +2,13 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { BotsModule } from './bots/bots.module';
+import { ConversationsModule } from './conversations/conversations.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { FlowsModule } from './flows/flows.module';
 import { HealthModule } from './health/health.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { QueuesModule } from './queues/queues.module';
 import { UsersModule } from './users/users.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 
@@ -20,6 +22,8 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     WorkspacesModule,
     BotsModule,
     FlowsModule,
+    ConversationsModule,
+    QueuesModule,
     HealthModule,
   ],
 })

@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { createHash } from 'node:crypto';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { FlowGraph, validateFlowGraph } from './flow-validator';
+import { FlowGraph, validateFlowGraph } from '@platform/flow-core';
 
 @Injectable()
 export class FlowsService {

@@ -5,7 +5,7 @@ const validGraph: FlowGraph = {
     { id: 'start', type: 'trigger.conversation_started' },
     { id: 'welcome', type: 'message.text', config: { text: 'أهلاً بك! كيف نساعدك؟' } },
     { id: 'ask', type: 'input.choice', config: { prompt: 'اختر خدمة', variable: 'service', options: ['sales', 'support'] } },
-    { id: 'branch', type: 'logic.condition', config: { expression: 'service == "sales"' } },
+    { id: 'branch', type: 'logic.condition', config: { condition: { variable: 'service', operator: 'equals', value: 'sales' } } },
     { id: 'sales', type: 'message.text', config: { text: 'سيتواصل معك فريق المبيعات.' } },
     { id: 'end', type: 'nav.end' },
   ],

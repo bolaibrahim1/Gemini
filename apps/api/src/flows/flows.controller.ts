@@ -4,7 +4,7 @@ import { IsObject, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'cl
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OrgMemberGuard, RequirePermission } from '../organizations/org-member.guard';
-import { FlowGraph } from './flow-validator';
+import { FlowGraph } from '@platform/flow-core';
 import { FlowsService } from './flows.service';
 
 class CreateFlowDto {
