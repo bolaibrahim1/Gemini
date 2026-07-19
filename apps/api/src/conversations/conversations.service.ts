@@ -17,6 +17,7 @@ import {
   startExecution,
   tick,
 } from '@platform/flow-core';
+import { AiService } from '../ai/ai.service';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -54,6 +55,7 @@ export class ConversationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly ai: AiService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -238,11 +240,15 @@ export class ConversationsService {
             : 'running',
       currentNodeId: null,
       waitingNodeId: execution.waitingNodeId,
-      variables: (execution.variables as Record<string, never>) ?? {},
+      variables: {
+        ...((execution.variables as Record<string, never>) ?? {}),
+        // Reserved variable used by AI nodes as the default question (§6.7).
+        last_message: input.text,
+      },
       stepCount: execution.stepCount,
     };
 
-    const result = tick(
+    const result = await tick(
       flowVersion.graph as unknown as FlowGraph,
       state,
       // A fresh execution consumes no input: the inbound message triggered it.
@@ -255,6 +261,21 @@ export class ConversationsService {
           tags: contact?.tags ?? [],
         },
         language: (bot.defaultLanguage as 'ar' | 'en') ?? 'ar',
+      },
+      {
+        ai: bot.knowledgeBaseId
+          ? async (request) => {
+              const result = await this.ai.answer({
+                organizationId: input.organizationId,
+                knowledgeBaseId: bot.knowledgeBaseId!,
+                question: request.question,
+                botId: bot.id,
+                botName: bot.name,
+                tone: bot.tone ?? undefined,
+              });
+              return { text: result.answer, grounded: result.grounded };
+            }
+          : undefined,
       },
     );
 

@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateIf } from 'class-validator';
 
 export class CreateBotDto {
   @IsUUID()
@@ -35,6 +35,12 @@ export class UpdateBotDto {
   @MinLength(1)
   @MaxLength(100)
   name?: string;
+
+  /** Set to null to detach the knowledge base. */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsUUID()
+  knowledgeBaseId?: string | null;
 
   @IsOptional()
   @IsString()

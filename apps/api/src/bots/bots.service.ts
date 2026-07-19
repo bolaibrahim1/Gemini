@@ -61,6 +61,12 @@ export class BotsService {
 
   async update(orgId: string, actorUserId: string, botId: string, dto: UpdateBotDto) {
     await this.get(orgId, botId);
+    if (dto.knowledgeBaseId) {
+      const kb = await this.prisma.knowledgeBase.findFirst({
+        where: { id: dto.knowledgeBaseId, organizationId: orgId },
+      });
+      if (!kb) throw new NotFoundException('Knowledge base not found');
+    }
     const bot = await this.prisma.bot.update({ where: { id: botId }, data: dto });
     await this.audit.log({
       organizationId: orgId,

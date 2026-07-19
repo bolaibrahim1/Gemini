@@ -46,8 +46,8 @@ const journeyGraph: FlowGraph = {
 };
 
 describe('engine journey', () => {
-  it('runs to the input node and waits', () => {
-    const result = tick(journeyGraph, startExecution(), null, ctx);
+  it('runs to the input node and waits', async () => {
+    const result = await tick(journeyGraph, startExecution(), null, ctx);
     expect(result.state.status).toBe('waiting_input');
     expect(result.state.waitingNodeId).toBe('ask');
     // Welcome message (interpolated) + choice prompt.
@@ -55,17 +55,17 @@ describe('engine journey', () => {
     expect(result.outputs[1].type).toBe('buttons');
   });
 
-  it('reprompts on invalid choice and stays waiting', () => {
-    const waiting = tick(journeyGraph, startExecution(), null, ctx);
-    const result = tick(journeyGraph, waiting.state, 'nonsense', ctx);
+  it('reprompts on invalid choice and stays waiting', async () => {
+    const waiting = await tick(journeyGraph, startExecution(), null, ctx);
+    const result = await tick(journeyGraph, waiting.state, 'nonsense', ctx);
     expect(result.state.status).toBe('waiting_input');
     expect(result.outputs).toHaveLength(1);
     expect(String(result.outputs[0].content.text)).toContain('available options');
   });
 
-  it('completes the sales path with a tag effect', () => {
-    const waiting = tick(journeyGraph, startExecution(), null, ctx);
-    const result = tick(journeyGraph, waiting.state, 'sales', ctx);
+  it('completes the sales path with a tag effect', async () => {
+    const waiting = await tick(journeyGraph, startExecution(), null, ctx);
+    const result = await tick(journeyGraph, waiting.state, 'sales', ctx);
     expect(result.state.status).toBe('completed');
     expect(result.state.variables.service).toBe('sales');
     expect(result.effects).toContainEqual({ type: 'add_tag', tag: 'lead' });
@@ -75,9 +75,9 @@ describe('engine journey', () => {
     });
   });
 
-  it('hands over on the fallback path', () => {
-    const waiting = tick(journeyGraph, startExecution(), null, ctx);
-    const result = tick(journeyGraph, waiting.state, 'support', ctx);
+  it('hands over on the fallback path', async () => {
+    const waiting = await tick(journeyGraph, startExecution(), null, ctx);
+    const result = await tick(journeyGraph, waiting.state, 'support', ctx);
     expect(result.state.status).toBe('handed_over');
     expect(result.effects).toContainEqual({
       type: 'handover',
@@ -86,17 +86,17 @@ describe('engine journey', () => {
     });
   });
 
-  it('is resumable from serialized state', () => {
-    const waiting = tick(journeyGraph, startExecution(), null, ctx);
+  it('is resumable from serialized state', async () => {
+    const waiting = await tick(journeyGraph, startExecution(), null, ctx);
     // Simulate a worker restart: state round-trips through JSON.
     const restored = JSON.parse(JSON.stringify(waiting.state));
-    const result = tick(journeyGraph, restored, 'sales', ctx);
+    const result = await tick(journeyGraph, restored, 'sales', ctx);
     expect(result.state.status).toBe('completed');
   });
 });
 
 describe('engine safety', () => {
-  it('fails when the step limit is exceeded by a loop', () => {
+  it('fails when the step limit is exceeded by a loop', async () => {
     const loop: FlowGraph = {
       nodes: [
         { id: 'start', type: 'trigger.conversation_started' },
@@ -109,14 +109,14 @@ describe('engine safety', () => {
         { id: 'e3', source: 'b', target: 'a' },
       ],
     };
-    const result = tick(loop, startExecution(), null, ctx);
+    const result = await tick(loop, startExecution(), null, ctx);
     expect(result.state.status).toBe('failed');
     expect(result.state.error).toContain('step limit');
     expect(result.state.stepCount).toBe(MAX_EXECUTION_STEPS);
   });
 
-  it('fails gracefully when the graph has no trigger', () => {
-    const result = tick({ nodes: [], edges: [] }, startExecution(), null, ctx);
+  it('fails gracefully when the graph has no trigger', async () => {
+    const result = await tick({ nodes: [], edges: [] }, startExecution(), null, ctx);
     expect(result.state.status).toBe('failed');
   });
 });
@@ -134,41 +134,88 @@ describe('input parsing', () => {
     ],
   });
 
-  const submit = (type: string, config: Record<string, unknown>, value: string) => {
+  const submit = async (type: string, config: Record<string, unknown>, value: string) => {
     const graph = inputGraph(type, config);
-    const waiting = tick(graph, startExecution(), null, ctx);
+    const waiting = await tick(graph, startExecution(), null, ctx);
     return tick(graph, waiting.state, value, ctx);
   };
 
-  it('validates emails', () => {
-    expect(submit('input.email', {}, 'not-an-email').state.status).toBe('waiting_input');
-    const result = submit('input.email', {}, 'Sara@Example.COM');
+  it('validates emails', async () => {
+    expect((await submit('input.email', {}, 'not-an-email')).state.status).toBe('waiting_input');
+    const result = await submit('input.email', {}, 'Sara@Example.COM');
     expect(result.state.status).toBe('completed');
     expect(result.state.variables.v).toBe('sara@example.com');
   });
 
-  it('validates phones', () => {
-    expect(submit('input.phone', {}, 'abc').state.status).toBe('waiting_input');
-    expect(submit('input.phone', {}, '+20 100 123-4567').state.variables.v).toBe('+201001234567');
+  it('validates phones', async () => {
+    expect((await submit('input.phone', {}, 'abc')).state.status).toBe('waiting_input');
+    expect((await submit('input.phone', {}, '+20 100 123-4567')).state.variables.v).toBe('+201001234567');
   });
 
-  it('parses Arabic-Indic digits as numbers', () => {
-    expect(submit('input.number', {}, '٤٢').state.variables.v).toBe(42);
+  it('parses Arabic-Indic digits as numbers', async () => {
+    expect((await submit('input.number', {}, '٤٢')).state.variables.v).toBe(42);
   });
 
-  it('understands Arabic confirmations', () => {
-    expect(submit('input.confirmation', {}, 'نعم').state.variables.v).toBe(true);
-    expect(submit('input.confirmation', {}, 'لا').state.variables.v).toBe(false);
-    expect(submit('input.confirmation', {}, 'ربما').state.status).toBe('waiting_input');
+  it('understands Arabic confirmations', async () => {
+    expect((await submit('input.confirmation', {}, 'نعم')).state.variables.v).toBe(true);
+    expect((await submit('input.confirmation', {}, 'لا')).state.variables.v).toBe(false);
+    expect((await submit('input.confirmation', {}, 'ربما')).state.status).toBe('waiting_input');
+  });
+});
+
+
+describe('ai nodes with handler', () => {
+  const aiGraph: FlowGraph = {
+    nodes: [
+      { id: 'start', type: 'trigger.incoming_message' },
+      {
+        id: 'ai',
+        type: 'ai.answer',
+        config: { fallbackBehavior: 'handover', fallbackMessage: 'سيتم تحويلك لموظف.' },
+      },
+      { id: 'end', type: 'nav.end' },
+    ],
+    edges: [
+      { id: 'e1', source: 'start', target: 'ai' },
+      { id: 'e2', source: 'ai', target: 'end' },
+    ],
+  };
+
+  it('answers through the handler and continues when grounded', async () => {
+    const state = { ...startExecution(), variables: { last_message: 'كم السعر؟' } };
+    const result = await tick(aiGraph, state, null, ctx, {
+      ai: async (request) => ({ text: `الإجابة عن: ${request.question}`, grounded: true }),
+    });
+    expect(result.state.status).toBe('completed');
+    expect(result.outputs[0].content.text).toBe('الإجابة عن: كم السعر؟');
+    expect(result.steps.find((s) => s.nodeId === 'ai')?.detail).toBe('grounded');
+  });
+
+  it('falls back to handover when the answer is not grounded', async () => {
+    const result = await tick(aiGraph, startExecution(), null, ctx, {
+      ai: async () => ({ text: '', grounded: false }),
+    });
+    expect(result.state.status).toBe('handed_over');
+    expect(result.outputs[0].content.text).toBe('سيتم تحويلك لموظف.');
+    expect(result.effects).toContainEqual({ type: 'handover', reason: 'ai_low_confidence' });
+  });
+
+  it('treats a throwing handler as low confidence', async () => {
+    const result = await tick(aiGraph, startExecution(), null, ctx, {
+      ai: async () => {
+        throw new Error('provider down');
+      },
+    });
+    expect(result.state.status).toBe('handed_over');
   });
 });
 
 describe('helpers', () => {
-  it('interpolates variables and leaves unknowns empty', () => {
+  it('interpolates variables and leaves unknowns empty', async () => {
     expect(interpolate('Hi {{name}}, order {{order_id}}', { name: 'Ali' })).toBe('Hi Ali, order ');
   });
 
-  it('evaluates operators', () => {
+  it('evaluates operators', async () => {
     const vars = { n: 5, s: 'hello', empty: '' };
     expect(evaluateCondition({ variable: 'n', operator: 'gt', value: 3 }, vars, ctx)).toBe(true);
     expect(evaluateCondition({ variable: 'n', operator: 'lte', value: 4 }, vars, ctx)).toBe(false);

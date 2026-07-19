@@ -10,6 +10,12 @@ const envSchema = z.object({
     .string()
     .default('false')
     .transform((v) => v === 'true'),
+  AI_PROVIDER: z.enum(['mock', 'gemini']).default('mock'),
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_GENERATION_MODEL: z.string().default('gemini-2.0-flash'),
+  GEMINI_EMBEDDING_MODEL: z.string().default('text-embedding-004'),
+  RAG_TOP_K: z.coerce.number().default(5),
+  RAG_SIMILARITY_THRESHOLD: z.coerce.number().default(0.35),
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
   JWT_ACCESS_TTL: z.coerce.number().default(900),

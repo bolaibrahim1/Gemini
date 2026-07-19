@@ -1,20 +1,36 @@
-import { Module, OnModuleDestroy } from '@nestjs/common';
+import { Global, Module, OnModuleDestroy } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import { env } from '../config/env';
 import { ConversationsModule } from '../conversations/conversations.module';
+import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { FlowWorker } from './flow.worker';
-import { INBOUND_EVENTS_QUEUE, INBOUND_QUEUE, REDIS_CONNECTION } from './queues.tokens';
+import { KnowledgeWorker } from './knowledge.worker';
+import {
+  INBOUND_EVENTS_QUEUE,
+  INBOUND_QUEUE,
+  KNOWLEDGE_INGESTION_QUEUE,
+  KNOWLEDGE_QUEUE,
+  REDIS_CONNECTION,
+} from './queues.tokens';
 
+const DEFAULT_JOB_OPTIONS = {
+  attempts: 5,
+  backoff: { type: 'exponential' as const, delay: 2000 },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+};
 
 /**
- * Queue foundation (plan §13). The API enqueues inbound channel events; the
- * flow worker consumes them. The worker runs in-process for now (modular
- * monolith, plan §8.1) and can be split into apps/worker-flow by booting the
- * same module in a separate deployment with WORKER_ENABLED=true.
+ * Queue foundation (plan §13). The API enqueues jobs; workers consume them.
+ * Workers run in-process for now (modular monolith, plan §8.1) and can be
+ * split into separate deployments by booting with WORKER_ENABLED=true there
+ * and false on the API tier. Global so tenant modules can inject queue
+ * tokens without importing this module (avoids import cycles).
  */
+@Global()
 @Module({
-  imports: [ConversationsModule],
+  imports: [ConversationsModule, KnowledgeModule],
   providers: [
     {
       provide: REDIS_CONNECTION,
@@ -29,24 +45,27 @@ import { INBOUND_EVENTS_QUEUE, INBOUND_QUEUE, REDIS_CONNECTION } from './queues.
       provide: INBOUND_QUEUE,
       inject: [REDIS_CONNECTION],
       useFactory: (connection: IORedis) =>
-        new Queue(INBOUND_EVENTS_QUEUE, {
-          connection,
-          defaultJobOptions: {
-            attempts: 5,
-            backoff: { type: 'exponential', delay: 2000 },
-            removeOnComplete: 1000,
-            removeOnFail: 5000,
-          },
-        }),
+        new Queue(INBOUND_EVENTS_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
+    },
+    {
+      provide: KNOWLEDGE_QUEUE,
+      inject: [REDIS_CONNECTION],
+      useFactory: (connection: IORedis) =>
+        new Queue(KNOWLEDGE_INGESTION_QUEUE, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
     },
     FlowWorker,
+    KnowledgeWorker,
   ],
-  exports: [INBOUND_QUEUE],
+  exports: [INBOUND_QUEUE, KNOWLEDGE_QUEUE],
 })
 export class QueuesModule implements OnModuleDestroy {
-  constructor(private readonly flowWorker: FlowWorker) {}
+  constructor(
+    private readonly flowWorker: FlowWorker,
+    private readonly knowledgeWorker: KnowledgeWorker,
+  ) {}
 
   async onModuleDestroy() {
     await this.flowWorker.close();
+    await this.knowledgeWorker.close();
   }
 }

@@ -70,6 +70,27 @@ export interface TickResult {
   steps: StepTrace[];
 }
 
+export interface AiAnswerRequest {
+  nodeType: string;
+  question: string;
+  config: Record<string, unknown>;
+}
+
+export interface AiAnswerResult {
+  text: string;
+  /** False when retrieval/groundedness checks failed and fallback should run. */
+  grounded: boolean;
+}
+
+/**
+ * Side-effectful node handlers injected by the runtime (plan §6.7). The
+ * engine stays deterministic; providers, retrieval, and HTTP live behind
+ * these callbacks.
+ */
+export interface EngineHandlers {
+  ai?: (request: AiAnswerRequest) => Promise<AiAnswerResult>;
+}
+
 /** Hard ceiling on nodes executed in a single execution (plan §6.4). */
 export const MAX_EXECUTION_STEPS = 100;
 
@@ -112,12 +133,13 @@ export function startExecution(): EngineState {
  * execution is waiting for one, then execute nodes until the flow waits,
  * completes, hands over, fails, or hits the step limit.
  */
-export function tick(
+export async function tick(
   graph: FlowGraph,
   previous: EngineState,
   input: string | null,
   ctx: EngineContext,
-): TickResult {
+  handlers: EngineHandlers = {},
+): Promise<TickResult> {
   const state: EngineState = {
     ...previous,
     variables: { ...previous.variables },
@@ -183,7 +205,7 @@ export function tick(
     }
     state.stepCount += 1;
 
-    const result = executeNode(node, graph.edges, state, ctx, messages);
+    const result = await executeNode(node, graph.edges, state, ctx, messages, handlers);
     outputs.push(...result.outputs);
     effects.push(...result.effects);
     steps.push(result.step);
@@ -214,13 +236,14 @@ interface NodeResult {
   terminal?: Extract<ExecutionStatus, 'completed' | 'handed_over'>;
 }
 
-function executeNode(
+async function executeNode(
   node: FlowNode,
   edges: FlowEdge[],
   state: EngineState,
   ctx: EngineContext,
   messages: (typeof FALLBACK_MESSAGES)['ar'] | (typeof FALLBACK_MESSAGES)['en'],
-): NodeResult {
+  handlers: EngineHandlers,
+): Promise<NodeResult> {
   const cfg = node.config ?? {};
   const vars = { ...ctx.contact.attributes, ...state.variables };
   const ok = (extra?: Partial<NodeResult>): NodeResult => ({
@@ -409,9 +432,45 @@ function executeNode(
     case 'ai.intent':
     case 'ai.extract':
     case 'ai.rag_query': {
-      // AI orchestration arrives in Phase 3; honor the node's configured
-      // fallback behavior (plan §6.7 "Fallback Rules").
       const fallbackMessage = String(cfg.fallbackMessage ?? messages.aiUnavailable);
+
+      if (handlers.ai && (node.type === 'ai.answer' || node.type === 'ai.rag_query')) {
+        // The question defaults to the last inbound text captured by the
+        // runtime in the reserved last_message variable.
+        const question = interpolate(
+          String(cfg.question ?? '{{last_message}}'),
+          { ...vars, last_message: vars.last_message ?? '' },
+        ).trim();
+        let answer: AiAnswerResult | null = null;
+        try {
+          answer = await handlers.ai({ nodeType: node.type, question, config: cfg });
+        } catch {
+          answer = null;
+        }
+        if (answer?.grounded) {
+          return ok({
+            outputs: [{ type: 'text', content: { text: answer.text } }],
+            step: { nodeId: node.id, nodeType: node.type, status: 'ok', detail: 'grounded' },
+          });
+        }
+        // Low confidence / provider failure → fallback rules (§6.7).
+        if (cfg.fallbackBehavior === 'handover') {
+          return {
+            outputs: [{ type: 'text', content: { text: fallbackMessage } }],
+            effects: [{ type: 'handover', reason: 'ai_low_confidence' }],
+            step: { nodeId: node.id, nodeType: node.type, status: 'ok', detail: 'fallback_handover' },
+            nextNodeId: null,
+            terminal: 'handed_over',
+          };
+        }
+        return ok({
+          outputs: [{ type: 'text', content: { text: fallbackMessage } }],
+          step: { nodeId: node.id, nodeType: node.type, status: 'ok', detail: 'fallback_message' },
+        });
+      }
+
+      // No AI handler configured for this runtime; honor the node's
+      // configured fallback behavior (plan §6.7 "Fallback Rules").
       if (cfg.fallbackBehavior === 'handover') {
         return {
           outputs: [{ type: 'text', content: { text: fallbackMessage } }],

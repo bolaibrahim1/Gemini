@@ -72,5 +72,27 @@ bot → flow → publish → multi-turn Arabic simulator conversation (invalid-i
 reprompts, lead tagging, handover, bot silence under human ownership,
 return-to-bot), plus the async worker path with idempotent redelivery.
 
-Next per the plan's initial priorities (§27): knowledge ingestion + RAG
-(pgvector), website widget, WhatsApp Cloud API integration, team inbox.
+- Knowledge base + AI orchestration (plan §6.6–6.7): `packages/ai-core`
+  (provider abstraction with Gemini REST adapter and a deterministic offline
+  mock provider, grounded prompt builder that isolates untrusted retrieved
+  content, citation/groundedness helpers) and `packages/knowledge-core`
+  (normalization, paragraph chunking with overlap, Arabic/English language
+  detection, PDF/DOCX/TXT extraction). The API adds knowledge bases, sources
+  (articles, FAQs, file uploads), a queue-backed ingestion worker
+  (chunk → embed → store in pgvector with an HNSW index), tenant-scoped
+  vector retrieval with top-K + similarity threshold, a grounded-answer
+  pipeline with per-request token/latency tracking (`ai_requests`), an AI
+  test console endpoint, and `ai.answer` flow nodes wired to RAG with
+  low-confidence fallback to handover.
+
+Verified end-to-end against live Postgres (pgvector) + Redis with the mock
+provider: FAQ + article ingestion through the worker, grounded Arabic answers
+with citations in the test console, off-topic questions rejected at the
+similarity threshold, and a published bot answering from its knowledge base
+through the flow engine — falling back to human handover on unrelated
+questions. The Gemini adapter is code-complete but has not been exercised
+against the live API (no key in this environment); set AI_PROVIDER=gemini and
+GEMINI_API_KEY to enable it.
+
+Next per the plan's initial priorities (§27): website widget, WhatsApp Cloud
+API integration, team inbox, then contacts and campaigns.

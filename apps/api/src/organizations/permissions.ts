@@ -17,6 +17,8 @@ export type Permission =
   | 'flows:manage'
   | 'conversations:read'
   | 'conversations:manage'
+  | 'knowledge:read'
+  | 'knowledge:manage'
   | 'audit:read';
 
 const VIEWER_PERMISSIONS: Permission[] = [
@@ -25,6 +27,7 @@ const VIEWER_PERMISSIONS: Permission[] = [
   'bots:read',
   'flows:read',
   'conversations:read',
+  'knowledge:read',
 ];
 
 const AGENT_PERMISSIONS: Permission[] = [...VIEWER_PERMISSIONS, 'conversations:manage'];
@@ -36,6 +39,7 @@ const BOT_BUILDER_PERMISSIONS: Permission[] = [
   'bots:manage',
   'bots:publish',
   'flows:manage',
+  'knowledge:manage',
 ];
 
 const SUPERVISOR_PERMISSIONS: Permission[] = [
@@ -58,6 +62,7 @@ const ADMIN_PERMISSIONS: Permission[] = [
   'bots:publish',
   'flows:manage',
   'conversations:manage',
+  'knowledge:manage',
   'audit:read',
 ];
 

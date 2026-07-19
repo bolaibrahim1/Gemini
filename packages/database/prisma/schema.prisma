@@ -133,8 +133,10 @@ model Organization {
   auditLogs     AuditLog[]
   bots          Bot[]
   flows         Flow[]
-  contacts      Contact[]
-  conversations Conversation[]
+  contacts       Contact[]
+  conversations  Conversation[]
+  knowledgeBases KnowledgeBase[]
+  aiRequests     AiRequest[]
 
   @@map("organizations")
 }
@@ -221,12 +223,14 @@ model Bot {
   supportedLanguages String[]  @default(["ar", "en"]) @map("supported_languages")
   tone               String?
   fallbackMessage    String?   @map("fallback_message")
+  knowledgeBaseId    String?   @map("knowledge_base_id")
   status             BotStatus @default(DRAFT)
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
   organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  knowledgeBase KnowledgeBase?  @relation(fields: [knowledgeBaseId], references: [id], onDelete: SetNull)
   flows         Flow[]
   deployments   BotDeployment[]
   conversations Conversation[]
@@ -462,4 +466,101 @@ model FlowExecutionStep {
 
   @@unique([executionId, index])
   @@map("flow_execution_steps")
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge (plan §11.6) and AI (plan §11.7)
+// ---------------------------------------------------------------------------
+
+enum KnowledgeSourceType {
+  FILE
+  ARTICLE
+  FAQ
+}
+
+enum KnowledgeSourceStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+  DISABLED
+}
+
+model KnowledgeBase {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  description    String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sources      KnowledgeSource[]
+  chunks       KnowledgeChunk[]
+  bots         Bot[]
+
+  @@index([organizationId])
+  @@map("knowledge_bases")
+}
+
+model KnowledgeSource {
+  id              String                @id @default(uuid())
+  organizationId  String                @map("organization_id")
+  knowledgeBaseId String                @map("knowledge_base_id")
+  type            KnowledgeSourceType
+  name            String
+  status          KnowledgeSourceStatus @default(UPLOADED)
+  language        String?
+  /// Extracted plain text; original binary files move to object storage later.
+  rawContent      String?               @map("raw_content")
+  error           String?
+  chunkCount      Int                   @default(0) @map("chunk_count")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  knowledgeBase KnowledgeBase    @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  chunks        KnowledgeChunk[]
+
+  @@index([organizationId])
+  @@index([knowledgeBaseId, status])
+  @@map("knowledge_sources")
+}
+
+model KnowledgeChunk {
+  id              String                       @id @default(uuid())
+  organizationId  String                       @map("organization_id")
+  knowledgeBaseId String                       @map("knowledge_base_id")
+  sourceId        String                       @map("source_id")
+  index           Int
+  content         String
+  language        String
+  embedding       Unsupported("vector(768)")?
+  createdAt       DateTime                     @default(now()) @map("created_at")
+
+  knowledgeBase KnowledgeBase   @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  source        KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, index])
+  @@index([organizationId, knowledgeBaseId])
+  @@map("knowledge_chunks")
+}
+
+model AiRequest {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  botId          String?  @map("bot_id")
+  operation      String
+  provider       String
+  model          String?
+  status         String
+  inputTokens    Int      @default(0) @map("input_tokens")
+  outputTokens   Int      @default(0) @map("output_tokens")
+  latencyMs      Int      @default(0) @map("latency_ms")
+  error          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@map("ai_requests")
 }
