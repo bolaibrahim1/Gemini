@@ -1,0 +1,315 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity (plan §11.1)
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String?   @map("password_hash")
+  firstName    String    @map("first_name")
+  lastName     String?   @map("last_name")
+  locale       String    @default("ar")
+  timezone     String    @default("Africa/Cairo")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  deactivatedAt   DateTime? @map("deactivated_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  sessions            UserSession[]
+  oauthAccounts       OauthAccount[]
+  emailVerifications  EmailVerification[]
+  passwordResetTokens PasswordResetToken[]
+  memberships         OrganizationMember[]
+  sentInvitations     Invitation[]         @relation("InvitedBy")
+  auditLogs           AuditLog[]
+
+  @@map("users")
+}
+
+model UserSession {
+  id               String    @id @default(uuid())
+  userId           String    @map("user_id")
+  refreshTokenHash String    @map("refresh_token_hash")
+  userAgent        String?   @map("user_agent")
+  ipAddress        String?   @map("ip_address")
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  // Rotation chain: when a refresh token is rotated the old session points to
+  // its replacement so reuse of a rotated token can be detected and the whole
+  // chain revoked.
+  replacedById     String?   @map("replaced_by_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+model OauthAccount {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  provider       String
+  providerUserId String   @map("provider_user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@map("oauth_accounts")
+}
+
+model EmailVerification {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verifications")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Multi-tenancy (plan §11.2)
+// ---------------------------------------------------------------------------
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  BOT_BUILDER
+  SUPERVISOR
+  AGENT
+  CAMPAIGN_MANAGER
+  ANALYST
+  VIEWER
+}
+
+enum MemberStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model Organization {
+  id              String   @id @default(uuid())
+  name            String
+  slug            String   @unique
+  industry        String?
+  defaultLanguage String   @default("ar") @map("default_language")
+  timezone        String   @default("Africa/Cairo")
+  suspendedAt     DateTime? @map("suspended_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  workspaces  Workspace[]
+  members     OrganizationMember[]
+  invitations Invitation[]
+  auditLogs   AuditLog[]
+  bots        Bot[]
+  flows       Flow[]
+
+  @@map("organizations")
+}
+
+model Workspace {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bots         Bot[]
+  flows        Flow[]
+
+  @@unique([organizationId, name])
+  @@map("workspaces")
+}
+
+model OrganizationMember {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  userId         String       @map("user_id")
+  role           OrgRole
+  status         MemberStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  REVOKED
+  EXPIRED
+}
+
+model Invitation {
+  id             String           @id @default(uuid())
+  organizationId String           @map("organization_id")
+  email          String
+  role           OrgRole
+  status         InvitationStatus @default(PENDING)
+  tokenHash      String           @unique @map("token_hash")
+  invitedById    String           @map("invited_by_id")
+  expiresAt      DateTime         @map("expires_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("InvitedBy", fields: [invitedById], references: [id])
+
+  @@index([organizationId, email])
+  @@map("invitations")
+}
+
+// ---------------------------------------------------------------------------
+// Bots and flows (plan §11.3)
+// ---------------------------------------------------------------------------
+
+enum BotStatus {
+  DRAFT
+  TESTING
+  PUBLISHED
+  PAUSED
+  ARCHIVED
+}
+
+model Bot {
+  id                 String    @id @default(uuid())
+  organizationId     String    @map("organization_id")
+  workspaceId        String    @map("workspace_id")
+  name               String
+  description        String?
+  avatarUrl          String?   @map("avatar_url")
+  defaultLanguage    String    @default("ar") @map("default_language")
+  supportedLanguages String[]  @default(["ar", "en"]) @map("supported_languages")
+  tone               String?
+  fallbackMessage    String?   @map("fallback_message")
+  status             BotStatus @default(DRAFT)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  flows        Flow[]
+  deployments  BotDeployment[]
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@map("bots")
+}
+
+model Flow {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  workspaceId    String   @map("workspace_id")
+  botId          String   @map("bot_id")
+  name           String
+  // Mutable draft graph edited by the flow builder. Publishing snapshots it
+  // into an immutable FlowVersion.
+  draftGraph     Json     @default("{\"nodes\":[],\"edges\":[]}") @map("draft_graph")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  bot          Bot           @relation(fields: [botId], references: [id], onDelete: Cascade)
+  versions     FlowVersion[]
+
+  @@index([organizationId])
+  @@index([botId])
+  @@map("flows")
+}
+
+model FlowVersion {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  flowId         String   @map("flow_id")
+  version        Int
+  graph          Json
+  contentHash    String   @map("content_hash")
+  publishedById  String   @map("published_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  flow        Flow            @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  deployments BotDeployment[]
+
+  @@unique([flowId, version])
+  @@index([organizationId])
+  @@map("flow_versions")
+}
+
+model BotDeployment {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  botId          String    @map("bot_id")
+  flowVersionId  String    @map("flow_version_id")
+  deployedById   String    @map("deployed_by_id")
+  active         Boolean   @default(true)
+  deactivatedAt  DateTime? @map("deactivated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  bot         Bot         @relation(fields: [botId], references: [id], onDelete: Cascade)
+  flowVersion FlowVersion @relation(fields: [flowVersionId], references: [id])
+
+  @@index([organizationId])
+  @@index([botId, active])
+  @@map("bot_deployments")
+}
+
+// ---------------------------------------------------------------------------
+// Operations (plan §11.10)
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String?  @map("organization_id")
+  actorUserId    String?  @map("actor_user_id")
+  action         String
+  targetType     String?  @map("target_type")
+  targetId       String?  @map("target_id")
+  metadata       Json?
+  ipAddress      String?  @map("ip_address")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  actor        User?         @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([actorUserId])
+  @@map("audit_logs")
+}
